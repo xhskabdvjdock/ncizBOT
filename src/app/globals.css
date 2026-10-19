@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+/* خط ثمانية — عبر @dawod/thmanyah-font-web (CDN)؛ يُستورد في rootLayout  */
+@theme {
+  --font-sans: "Thmanyah Sans", Tahoma, "Segoe UI", Arial, sans-serif;
+
+  --color-bg: #0e1013;
+  --color-surface: #15181b;
+  --color-elevation: #1b1f23;
+  --color-sep: #262a2f;
+  --color-sep-strong: #31363c;
+
+  --color-ink: #e9ecef;
+  --color-muted: #9aa1ab;
+  --color-faint: #6a717a;
+
+  --color-accent: #53fc18;        /* أخضر Kick المعتدل الاستخدام */
+  --color-accent-soft: #35c942;
+  --color-accent-ink: #71ff49;    /* للنصوص الخضراء على أساسي داكن */
+
+  --color-ok: #66d16e;
+  --color-ok-bg: #12261a;
+  --color-warn: #e8b03f;
+  --color-warn-bg: #2a2212;
+  --color-bad: #f0746c;
+  --color-bad-bg: #2b1515;
+  --color-info: #5ba3f5;
+  --color-info-bg: #141f2e;
+
+  --radius-xs: 5px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+}
+
+/* الأساسيات */
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.72;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* أرقام جدولية للقيم الرقمية */
+.num {
+  font-feature-settings: "tnum" 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* أوامر/مسارات تقنية بالاتجاه الإنجليزي داخل صفحة عربية */
+.ltr-tech {
+  direction: ltr;
+  unicode-bidi: isolate;
+  font-feature-settings: "tnum" 1;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent-soft);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+::selection {
+  background: #2c5c1e;
+}
+
+/* شريط تمرير هادئ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-sep-strong) transparent;
+}
+
+input:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0 40px var(--color-elevation) inset;
+  -webkit-text-fill-color: var(--color-ink);
+}
+
+/* احترام تفضيل تقليل الحركة */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
