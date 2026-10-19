@@ -4,15 +4,16 @@
   "private": true,
   "description": "منصة فعاليات تفاعلية مباشرة للبث على Kick — اختبارات، تحديات سرعة، ومواجهات فرق",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "dev": "node scripts/prisma-generate.mjs && next dev",
+    "build": "node scripts/prisma-generate.mjs && next build",
+    "start": "node scripts/prisma-generate.mjs && node scripts/prisma-migrate.mjs && next start",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:migrate": "prisma migrate dev",
-    "db:deploy": "prisma migrate deploy",
-    "db:studio": "prisma studio",
-    "postinstall": "prisma generate"
+    "db:migrate": "node scripts/prisma-migrate-dev.mjs",
+    "db:deploy": "node scripts/prisma-migrate.mjs",
+    "db:studio": "node scripts/prisma-studio.mjs",
+    "db:sync:pg": "node scripts/prisma-schema.mjs",
+    "postinstall": "node scripts/prisma-generate.mjs"
   },
   "dependencies": {
     "@dawod/thmanyah-font-web": "^1.0.0",
@@ -22,6 +23,7 @@
     "jose": "^6.0.0",
     "lucide-react": "^0.511.0",
     "next": "^15.3.0",
+    "prisma": "^6.7.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "zod": "^3.24.0"
@@ -32,7 +34,6 @@
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "postcss": "^8.5.0",
-    "prisma": "^6.7.0",
     "tailwindcss": "^4.1.0",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0",

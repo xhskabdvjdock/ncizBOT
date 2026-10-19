@@ -11,6 +11,13 @@ export default function globalSetup(): void {
   for (const suffix of ["", "-wal", "-shm"]) {
     fs.rmSync(dbPath + suffix, { force: true });
   }
+  // المخطط الافتراضي SQLite — نعيد توليد العميل دائمًا حتى لا يبقى
+  // عميل PostgreSQL من آخر بناء إنتاجي ويُفشل الاختبارات.
+  execSync("npx prisma generate", {
+    cwd: path.resolve(__dirname, ".."),
+    env: { ...process.env, DATABASE_URL: "file:./prisma/test.db" },
+    stdio: "inherit",
+  });
   execSync("npx prisma migrate deploy", {
     cwd: path.resolve(__dirname, ".."),
     env: { ...process.env, DATABASE_URL: "file:./prisma/test.db" },

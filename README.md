@@ -92,10 +92,10 @@ cp .env.example .env
 openssl rand -hex 32   # ضعه في APP_ENCRYPTION_KEY
 openssl rand -hex 32   # ضعه في SESSION_SECRET
 
-# 4) قاعدة البيانات
-npx prisma migrate dev
+# 4) قاعدة البيانات (يختار SQLite أو PostgreSQL حسب DATABASE_URL)
+npm run db:migrate
 
-# 5) التشغيل
+# 5) التشغيل (يولّد عميل Prisma المناسب تلقائيًا)
 npm run dev           # http://localhost:3000
 ```
 
@@ -218,9 +218,23 @@ npm run build
 npm start       # أو pm2/systemd — الأفضل خلف nginx مع TLS
 ```
 
-- **قاعدة البيانات**: SQLite كافٍ للتطوير والبيئات الصغيرة؛ للإنتاج الحقيقي أنقل
-  `DATABASE_URL` إلى Postgres وغيّر `provider = "postgresql"` في `prisma/schema.prisma`
-  ثم `prisma migrate deploy`. لا تغيير في الشيفرة (الحقول كلها أنواع عامة).
+- **قاعدة البيانات**: المشروع يدعم SQLite (تطوير/اختبارات) وPostgreSQL (إنتاج) تلقائيًا
+  حسب `DATABASE_URL`:
+  - إذا بدأ الرابط بـ `postgresql://` أو `postgres://` يستخدم المشروع
+    `prisma/postgres/schema.prisma` وترحيلات `prisma/postgres/migrations`.
+  - وإلا يستخدم `prisma/schema.prisma` وترحيلات SQLite.
+  - مصدر الحقيقة هو `prisma/schema.prisma`؛ نسخة PostgreSQL مولّدة تلقائيًا
+    عبر `npm run db:sync:pg` (يشغّلها البناء والبدء تلقائيًا). لا تعدّلها يدويًا.
+  - عند تعديل المخطط: شغّل `npm run db:migrate` مرة برابط SQLite (لترحيلات الاختبارات)
+    ومرة برابط PostgreSQL (لترحيلات الإنتاج).
+- **أوامر النشر**:
+  ```bash
+  npm run build     # يولّد Prisma Client المناسب ثم يبني Next.js
+  npm start         # يطبّق ترحيلات الإنتاج ثم يشغّل الخادم
+  ```
+  إن أردت تطبيق الترحيلات يدويًا: `npm run db:deploy`.
+- **Aiven Free PostgreSQL** خيار مجاني بدون بطاقة: 1 GB تخزين و20 اتصالًا؛
+  أضف `connection_limit=5` إلى الرابط وشغّل نسخة واحدة من التطبيق.
 - **APP_BASE_URL** يجب أن يكون العنوان العمومي الصحيح (يبني منه Redirect وWebhook).
 - تشغيل الجدول تلقائي عبر `src/instrumentation.ts` عند إقلاع الخادم (لا cron خارجي مطلوب).
 - في Production يُفرض وجود `SESSION_SECRET` عند الإقلاع، وغياب مفاتيح Kick يجعل زر «ربط»
@@ -271,5 +285,7 @@ src/
     api/           auth، events (+action/participants/simulate/stream/snapshot)، kick/*، settings/bot
   components/     واجهة النظام (ui، sidebar، wizard، control-room…)
 tests/             48 اختبارًا (وحدات + تكامل ضد SQLite معزولة)
-prisma/            schema + migrations
+prisma/            schema + migrations (SQLite)
+  postgres/        نسخة PostgreSQL مولّدة + ترحيلات الإنتاج
+scripts/           اختيار مخطط Prisma وتوليد العميل/الترحيلات حسب DATABASE_URL
 ```

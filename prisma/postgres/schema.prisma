@@ -1,0 +1,305 @@
+// مخطط قاعدة البيانات — نسخة PostgreSQL مولّدة من prisma/schema.prisma
+// لا تعدّل هذا الملف يدويًا؛ عدّل المصدر ثم شغّل: npm run db:sync:pg
+// ملاحظة: الأنواع محفوظة كنصوص ويتم التحقق منها في src/core عبر Zod.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// المستخدمون والجلسات (حساب التطبيق نفسه)
+// ─────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid()) // معرف داخلي للتطبيق
+  email        String   @unique
+  passwordHash String // bcrypt — لا تُخزَّن كلمات المرور نصًا صريحًا أبدًا
+  displayName  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions   Session[]
+  channels   Channel[]
+  auditLogs  AuditLog[]
+}
+
+model Session {
+  id        String   @id // معرف عشوائي يُخزَّن في كوكي httpOnly
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ─────────────────────────────────────────────
+// قنوات Kick واعتماديات OAuth
+// ─────────────────────────────────────────────
+
+model Channel {
+  id               String   @id @default(cuid())
+  ownerUserId      String
+  owner            User     @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  kickUserId       Int?     @unique // معرف المستخدم الرسمي في Kick (user_id) — null للقنوات المحلية للاختبار
+  kickUsername     String // اسم المستخدم كما تعيده Kick
+  kickChannelSlug  String // الرابط العام للقناة (channel_slug)
+  kind             String   @default("KICK") // KICK = قناة حقيقية متصلة عبر OAuth | LOCAL = قناة محلية للاختبار
+  createdAt        DateTime @default(now())
+
+  credential    KickCredential?
+  state         ConnectionState?
+  botSettings   BotSettings?
+  events        Event[]
+  outbox        OutboxMessage[]
+  auditLogs     AuditLog[]
+
+  @@index([ownerUserId])
+}
+
+model KickCredential {
+  id                    String   @id @default(cuid())
+  channelId             String   @unique
+  channel               Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  accessTokenEnc        String // مشفَّر AES-256-GCM — لا يُسجَّل ولا يُرسَل للمتصفح
+  refreshTokenEnc       String
+  accessTokenExpiresAt  DateTime
+  scopes                String // سلسلة مفصولة بمسافات مطابقة لمردود Kick
+  updatedAt             DateTime @updatedAt
+}
+
+// حالة الاتصال المحسوبة من التحقق الفعلي — لا حالة زائفة
+model ConnectionState {
+  id             String    @id @default(cuid())
+  channelId      String    @unique
+  channel        Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  status         String // NOT_CONNECTED | CONNECTED | ERROR
+  lastCheckedAt  DateTime?
+  lastHealthyAt  DateTime?
+  lastError      String?
+  subscriptionsActive Boolean @default(false)
+  updatedAt      DateTime  @updatedAt
+}
+
+model BotSettings {
+  id                 String   @id @default(cuid())
+  channelId          String   @unique
+  channel            Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  commandPrefix      String   @default("!") // بادئة الأوامر
+  botDisplayName     String   @default("البوت")
+  language           String   @default("ar")
+  sendType           String   @default("user") // user | bot (حسب نوع الاعتماد)
+  minSendIntervalMs  Int      @default(1200) // حد أمان بين الرسائل المرسلة
+  replyToCommands    Boolean  @default(true) // الرد على أوامر المعلومات مثل !score
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+// حالة اعتماد OAuth قيد التدفق (حماية CSRF + PKCE)
+model OAuthState {
+  id            String   @id @default(cuid()) // قيمة state العشوائية
+  userId        String
+  codeVerifier  String
+  redirectUri   String
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime
+
+  @@index([expiresAt])
+}
+
+// ─────────────────────────────────────────────
+// الفعاليات
+// ─────────────────────────────────────────────
+
+model Event {
+  id        String   @id @default(cuid())
+  channelId String
+  channel   Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  name      String
+  description String?
+  type      String // QUIZ | SPEED | TEAM_BATTLE
+  status    String   @default("DRAFT") // DRAFT | READY | REG_OPEN | REG_CLOSED | RUNNING | COMPLETED | CANCELLED
+
+  // أوامر القناة (قابلة للتخصيص)
+  registrationCommand String @default("!join")
+  leaveCommand        String @default("!leave")
+  answerCommand       String @default("!answer")
+  teamCommand         String @default("!team")
+  scoreCommand        String @default("!score")
+  helpCommand         String @default("!help")
+  eventCommand        String @default("!event")
+
+  // إعداد الفعالية الكامل — JSON نصي موثوف بمخطط Zod (كلتفية مشاركة/قواعد/رسائل)
+  config          String @default("{}")
+  simulation      Boolean @default(false) // وضع الاختبار: بيانات معزولة ومُعلَّمة
+  version         Int     @default(0) // قفل تفاؤلي لتحديثات الحالة
+
+  scheduledStartAt        DateTime?
+  registrationOpenedAt    DateTime?
+  registrationClosesAt    DateTime?
+  startedAt               DateTime?
+  endedAt                 DateTime?
+  cancelledAt             DateTime?
+
+  currentRoundIndex       Int       @default(-1) // طلب السؤال الحالي (0..n-1)
+  currentRoundEndsAt      DateTime? // الموعد النهائي للسؤال الحالي (مصدر الحقيقة للعد التنازلي)
+  currentRoundRemainingMs Int? // المتبقي عند الإيقاف المؤقت
+
+  winnerParticipantId     String?
+  winnerTeamName          String?
+  resultOutcome           String? // COMPLETED | DRAW | NO_WINNER
+  resultComputedAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  questions     Question[]
+  participants  Participant[]
+  answers       Answer[]
+  scoreAwards   ScoreAward[]
+  result        EventResult?
+  outboxMsgs    OutboxMessage[]
+  auditLogs     AuditLog[]
+
+  @@index([channelId, status])
+  @@index([status])
+}
+
+model Question {
+  id             String  @id @default(cuid())
+  eventId        String
+  event          Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  index          Int // ترتيب السؤال يبدأ من 0
+  prompt         String // نص السؤال
+  options        String? // JSON: مصفوفة خيارات للأسئلة المتعددة
+  correctAnswers String // JSON: مصفوفة إجابات مقبولة (أو حرف واحد للأسئلة بأخيارات)
+  timeLimitSec   Int
+  points         Int
+  speedBonus     Int     @default(0)
+  explanation    String?
+
+  @@unique([eventId, index])
+}
+
+model Participant {
+  id           String   @id @default(cuid())
+  eventId      String
+  event        Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  kickUserId   Int // المعرف الرسمي في Kick (محفوظ من رسالة الرابط)
+  kickUsername String
+  teamName     String? // أسماء الفرق الافتراضية: أحمر / أزرق
+  status       String   @default("ACTIVE") // ACTIVE | LEFT | REMOVED
+  score        Int      @default(0) // مجموع مبني على ScoreAward (يُتحقق في التحديثات)
+  correctCount Int      @default(0)
+  attempts     Int      @default(0) // عدد الإجابات المرسلة خلال الجولة الحالية
+  totalAttempts Int     @default(0)
+  joinedAt     DateTime @default(now())
+
+  answers Answer[]
+  awards  ScoreAward[]
+
+  @@unique([eventId, kickUserId])
+  @@index([eventId, status])
+  @@index([eventId, score])
+}
+
+// إجابة مفردة من مشاهد (تتعدد المحاولات حسب الإعداد)
+model Answer {
+  id            String   @id @default(cuid())
+  eventId       String
+  event         Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  roundIndex    Int
+  participantId String
+  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  content       String // النص الخام المنظَّف
+  outcome       String // CORRECT | WRONG | REJECTED
+  rejectedReason String? // بعد انتهاء الوقت/محاولات ∨ غير مسجل
+  pointsAwarded Int      @default(0)
+  speedBonus    Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  @@index([eventId, roundIndex])
+  @@index([participantId])
+}
+
+// منح النقاط — سجل قابل للتدقيق ويمنع منح النقاط مرتين لنفس الجولة/المشارك/السبب
+model ScoreAward {
+  id            String   @id @default(cuid())
+  eventId       String
+  event         Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  roundIndex    Int
+  participantId String
+  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  points        Int
+  reason        String   @default("CORRECT") // CORRECT | SPEED_BONUS
+  createdAt     DateTime @default(now())
+
+  @@unique([eventId, roundIndex, participantId, reason])
+  @@index([eventId, participantId])
+}
+
+// النتيجة النهائية المحسوبة من السجلات فعليًا
+model EventResult {
+  id                 String   @id @default(cuid())
+  eventId            String   @unique
+  event              Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  outcome            String // WINNER | DRAW | NO_PARTICIPANTS
+  winnerParticipantId String?
+  winnerTeamName     String?
+  standings          String // JSON: ترتيب نهائي [{rank, username, score, correct, team}]
+  computedAt         DateTime @default(now())
+}
+
+// صندوق الرسائل المرسلة — كل ما يرسله البوت يمر من هنا (طابور موثق)
+model OutboxMessage {
+  id          String    @id @default(cuid())
+  channelId   String
+  channel     Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  eventId     String?
+  event       Event?    @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  kind        String // REG_OPEN | EVENT_START | QUESTION | ROUND_RESULT | WINNER | CANCELLED | INFO_REPLY ...
+  content     String // النص النهائي <= 500 حرفًا وفق كت Kick
+  status      String    @default("PENDING") // PENDING | SENT | FAILED | BLOCKED
+  attempts    Int       @default(0)
+  lastError   String?
+  nextAttemptAt DateTime @default(now())
+  sentAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([status, nextAttemptAt])
+  @@index([channelId, createdAt])
+}
+
+// تكافؤ رعاية Webhook — يضمن معالجة كل رسالة مرة واحدة فحسب
+model WebhookIngest {
+  id             String    @id // Kick-Event-Message-Id
+  channelId      String
+  processedAt    DateTime?
+  receivedAt     DateTime  @default(now())
+
+  @@index([processedAt])
+  @@index([channelId])
+}
+
+// سجل تدقيق الأفعال الإدارية المهمة
+model AuditLog {
+  id        String   @id @default(cuid())
+  channelId String?
+  channel   Channel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  eventId   String?
+  event     Event?   @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  action    String // EVENT_CREATE | EVENT_START | PARTICIPANT_REMOVE | KICK_CONNECT | ...
+  detail    String? // JSON مفصَّل (بلا أسرار)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([channelId])
+}
